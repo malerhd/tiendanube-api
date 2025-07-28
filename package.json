@@ -1,7 +1,7 @@
 {
-  "name": "tiendanube-google-sheets",
+  "name": "tiendanube-token-api",
   "version": "1.0.0",
-  "description": "API para conectar Tiendanube con Google Sheets",
+  "description": "API para gestionar tokens de Tiendanube",
   "main": "api/index.js",
   "scripts": {
     "start": "node api/index.js",
@@ -9,8 +9,7 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "axios": "^1.7.2",
-    "googleapis": "^140.0.1"
+    "axios": "^1.7.2"
   },
   "engines": {
     "node": "18.x"
