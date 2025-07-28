@@ -28,6 +28,7 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (response.ok) {
+      // Podés hacer lo que quieras acá, por ejemplo mostrar token, guardarlo, etc
       res.status(200).json({ message: "Token obtenido con éxito", token: data.access_token });
     } else {
       res.status(response.status).json({ error: data });
