@@ -19,7 +19,7 @@ export default async function handler(req, res) {
   };
 
   try {
-    const response = await fetch("https://www.tiendanube.com/apps/authorize/token", {
+    const response = await fetch("https://www.tiendanube.com/apps/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
