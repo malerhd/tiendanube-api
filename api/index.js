@@ -1,26 +1,19 @@
 const express = require('express');
 const axios = require('axios');
-const { google } = require('googleapis');
-
 const app = express();
 app.use(express.json());
 
-// Configuración de variables (deberías almacenarlas en variables de entorno en Vercel)
-const TIENDANUBE_CLIENT_ID = process.env.TIENDANUBE_CLIENT_ID;
-const TIENDANUBE_CLIENT_SECRET = process.env.TIENDANUBE_CLIENT_SECRET;
-const TIENDANUBE_REDIRECT_URI = process.env.TIENDANUBE_REDIRECT_URI || 'https://tudominio.vercel.app/api/callback';
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'https://tudominio.vercel.app/api/google-callback';
-const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
+// Configuración de variables de entorno
+const CLIENT_ID = process.env.TIENDANUBE_CLIENT_ID;
+const CLIENT_SECRET = process.env.TIENDANUBE_CLIENT_SECRET;
+const REDIRECT_URI = process.env.TIENDANUBE_REDIRECT_URI || 'https://tudominio.vercel.app/api/callback';
+let accessToken = process.env.TIENDANUBE_ACCESS_TOKEN || null;
+let refreshToken = process.env.TIENDANUBE_REFRESH_TOKEN || null;
+let tokenExpiration = null;
 
-// Configuración de Google OAuth
-const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
-const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
-
-// Endpoint para iniciar autenticación con Tiendanube
+// Endpoint para iniciar autenticación
 app.get('/auth', (req, res) => {
-  const authUrl = `https://api.tiendanube.com/v1/oauth/authorize?client_id=${TIENDANUBE_CLIENT_ID}&redirect_uri=${TIENDANUBE_REDIRECT_URI}&response_type=code`;
+  const authUrl = `https://api.tiendanube.com/v1/oauth/authorize?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&response_type=code`;
   res.redirect(authUrl);
 });
 
@@ -29,72 +22,55 @@ app.get('/callback', async (req, res) => {
   const { code } = req.query;
   try {
     const response = await axios.post('https://api.tiendanube.com/v1/oauth/token', {
-      client_id: TIENDANUBE_CLIENT_ID,
-      client_secret: TIENDANUBE_CLIENT_SECRET,
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
       grant_type: 'authorization_code',
       code,
-      redirect_uri: TIENDANUBE_REDIRECT_URI,
+      redirect_uri: REDIRECT_URI,
     });
-    const accessToken = response.data.access_token;
-    // TODO: Guarda el accessToken en una base de datos o en variables de entorno
-    process.env.TIENDANUBE_ACCESS_TOKEN = accessToken; // Temporal, no recomendado para producción
-    res.send('Autenticación con Tiendanube exitosa');
+    accessToken = response.data.access_token;
+    refreshToken = response.data.refresh_token;
+    tokenExpiration = Date.now() + (response.data.expires_in * 1000);
+    // Guardar tokens en variables de entorno (o en una base de datos para producción)
+    process.env.TIENDANUBE_ACCESS_TOKEN = accessToken;
+    process.env.TIENDANUBE_REFRESH_TOKEN = refreshToken;
+    res.json({ access_token: accessToken, refresh_token: refreshToken });
   } catch (error) {
-    console.error('Error en autenticación Tiendanube:', error);
+    console.error('Error en autenticación:', error.message);
     res.status(500).send('Error en autenticación');
   }
 });
 
-// Endpoint para iniciar autenticación con Google
-app.get('/google-auth', (req, res) => {
-  const url = oauth2Client.generateAuthUrl({
-    scope: ['https://www.googleapis.com/auth/spreadsheets'],
-    access_type: 'offline',
-  });
-  res.redirect(url);
-});
-
-// Endpoint para manejar el callback de Google
-app.get('/google-callback', async (req, res) => {
-  const { code } = req.query;
+// Endpoint para renovar y obtener el access_token
+app.get('/get-token', async (req, res) => {
   try {
-    const { tokens } = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(tokens);
-    // TODO: Guarda los tokens en una base de datos
-    process.env.GOOGLE_TOKENS = JSON.stringify(tokens); // Temporal, no recomendado para producción
-    res.send('Autenticación con Google exitosa');
-  } catch (error) {
-    console.error('Error en autenticación Google:', error);
-    res.status(500).send('Error en autenticación');
-  }
-});
+    // Verificar si el access_token es válido
+    if (accessToken && tokenExpiration && Date.now() < tokenExpiration) {
+      return res.json({ access_token: accessToken });
+    }
 
-// Endpoint para sincronizar datos
-app.get('/sync', async (req, res) => {
-  try {
-    // Obtener productos de Tiendanube
-    const storeId = process.env.TIENDANUBE_STORE_ID; // Configura tu store ID en variables de entorno
-    const accessToken = process.env.TIENDANUBE_ACCESS_TOKEN;
-    const response = await axios.get(`https://api.tiendanube.com/v1/${storeId}/products`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const products = response.data;
+    // Si no hay access_token o está expirado, renovar usando el refresh_token
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'No se encontró refresh_token. Autentícate en /auth.' });
+    }
 
-    // Preparar datos para Google Sheets
-    const data = products.map(product => [product.name.es, product.price, product.stock]);
-
-    // Escribir en Google Sheets
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Sheet1!A1',
-      valueInputOption: 'RAW',
-      resource: { values: data },
+    const response = await axios.post('https://api.tiendanube.com/v1/oauth/token', {
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
     });
 
-    res.send('Datos sincronizados con Google Sheets');
+    accessToken = response.data.access_token;
+    refreshToken = response.data.refresh_token || refreshToken; // Actualizar refresh_token si se proporciona uno nuevo
+    tokenExpiration = Date.now() + (response.data.expires_in * 1000);
+    process.env.TIENDANUBE_ACCESS_TOKEN = accessToken;
+    process.env.TIENDANUBE_REFRESH_TOKEN = refreshToken;
+
+    res.json({ access_token: accessToken });
   } catch (error) {
-    console.error('Error en sincronización:', error);
-    res.status(500).send('Error al sincronizar');
+    console.error('Error al renovar token:', error.message);
+    res.status(500).json({ error: 'Error al renovar token' });
   }
 });
 
