@@ -1,5 +1,18 @@
 {
-  "name": "tiendanube-api",
+  "name": "tiendanube-google-sheets",
   "version": "1.0.0",
-  "type": "module"
+  "description": "API para conectar Tiendanube con Google Sheets",
+  "main": "api/index.js",
+  "scripts": {
+    "start": "node api/index.js",
+    "vercel-build": "echo 'No build step required'"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.7.2",
+    "googleapis": "^140.0.1"
+  },
+  "engines": {
+    "node": "18.x"
+  }
 }
